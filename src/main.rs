@@ -1,16 +1,16 @@
-use bytelines::*;
-use regex::Regex;
+use colored::*;
 use std::process;
 use std::process::{Command, Stdio};
 use std::str;
 use structopt::StructOpt;
 
+// mod mc_container;
+mod podman;
+use podman::{Instance, Runtime};
+
 #[macro_use(row)]
 extern crate tabular;
 use tabular::Table;
-
-const DOCKERIMAGE: &str = "itzg/minecraft-server:latest";
-const PREFIX: &str = "mcli-";
 
 fn banner() {
     println!("");
@@ -89,7 +89,8 @@ enum Mcli {
 ///////////////////////////////////////////////
 
 fn main() {
-    let crun: &str;
+    let container: Instance;
+
     let podman = Command::new("podman")
         .arg("--version")
         .stdout(Stdio::null())
@@ -100,9 +101,9 @@ fn main() {
         .status();
 
     if let Ok(_x) = podman {
-        crun = "podman";
+        container = Instance::new(Runtime::Podman);
     } else if let Ok(_x) = docker {
-        crun = "docker";
+        container = Instance::new(Runtime::Docker);
     } else {
         println!("No container runtime found! Aborting!");
         process::exit(1);
@@ -114,170 +115,58 @@ fn main() {
             mode,
             level_type,
             heap,
-        } => {
-            Command::new(&crun)
-                .args(&["run", "-d"])
-                .args(&["-p", "25565"])
-                .args(&["--restart", "unless-stopped"])
-                .args(&["-e", &format!("MODE={}", mode)])
-                .args(&["-e", &format!("LEVEL_TYPE={}", level_type)])
-                .args(&["-e", &format!("MEMORY={}", heap)])
-                .args(&["-l", &format!("game_mode={}", mode)])
-                .args(&["-l", &format!("level_type={}", level_type)])
-                .args(&["-e", "EULA=TRUE"])
-                .args(&["--name", &format!("{}{}", &PREFIX, name)])
-                .args(&["-v", &format!("{}{}:/data", &PREFIX, name)])
-                .arg(DOCKERIMAGE)
-                .stdout(Stdio::null())
-                .status()
-                .expect("process failed to execute");
-        }
+        } => match container.create(&name, &mode, &level_type, &heap) {
+            Ok(server_name) => println!("{} Created new server :: {}", "[+]".green(), server_name),
+            Err(err) => println!("{} {}", "[-]".red(), err),
+        },
 
-        Mcli::Remove { name } => {
-            Command::new(&crun)
-                .args(&["stop", &format!("{}{}", &PREFIX, name)])
-                .stdout(Stdio::null())
-                .status()
-                .expect("Could not stop docker container");
+        Mcli::Remove { name } => match container.remove(&name) {
+            Ok(server_name) => println!("{} Removed server :: {}", "[+]".green(), server_name),
+            Err(err) => println!("{} {}", "[-]".red(), err),
+        },
 
-            Command::new(&crun)
-                .args(&["rm", &format!("{}{}", &PREFIX, name)])
-                .stdout(Stdio::null())
-                .status()
-                .expect("Could not remove docker container");
+        Mcli::Start { name } => match container.start(&name) {
+            Ok(server_name) => println!("{} Started server :: {}", "[+]".green(), server_name),
+            Err(err) => println!("{} {}", "[-]".red(), err),
+        },
 
-            Command::new(&crun)
-                .args(&["volume", "remove", &format!("{}{}", &PREFIX, name)])
-                .stdout(Stdio::null())
-                .status()
-                .expect("Could not remove docker volume");
-        }
+        Mcli::Stop { name } => match container.stop(&name) {
+            Ok(server_name) => println!("{} Stopped server :: {}", "[+]".green(), server_name),
+            Err(err) => println!("{} {}", "[-]".red(), err),
+        },
 
-        Mcli::Start { name } => {
-            Command::new(&crun)
-                .args(&["start", &format!("{}{}", &PREFIX, name)])
-                .stdout(Stdio::null())
-                .status()
-                .expect("Could not start container");
-        }
-
-        Mcli::Stop { name } => {
-            Command::new(&crun)
-                .args(&["stop", &format!("{}{}", &PREFIX, name)])
-                .stdout(Stdio::null())
-                .status()
-                .expect("Could not stop container");
-        }
-
-        Mcli::Restart { name } => {
-            Command::new(&crun)
-                .args(&["restart", &format!("{}{}", &PREFIX, name)])
-                .stdout(Stdio::null())
-                .status()
-                .expect("Could not restart container");
-        }
+        Mcli::Restart { name } => match container.restart(&name) {
+            Ok(server_name) => println!("{} Restarted server :: {}", "[+]".green(), server_name),
+            Err(err) => println!("{} {}", "[-]".red(), err),
+        },
 
         Mcli::Rcon { name } => {
-            Command::new(&crun)
-                .args(&["exec", "-it", &format!("{}{}", &PREFIX, name), "rcon-cli"])
-                .status()
-                .expect("Could not start rcon session");
+            container.rcon(&name).unwrap();
         }
 
         Mcli::Logs { name } => {
-            Command::new(&crun)
-                .args(&["logs", "-f", &format!("{}{}", &PREFIX, name)])
-                .status()
-                .expect("Could not trail logs.");
+            container.logs(&name).unwrap();
         }
 
-        Mcli::List {} => {
-            banner();
-            let containers = Command::new(&crun)
-        .args(&["ps", "-a", "--format", "table {{.Status}};{{.Ports}};{{.Names}};{{.CreatedAt}};{{.Labels.level_type}};{{.Labels.game_mode}}"])
-        .output()
-        .expect("docker ps failed to execute");
+        Mcli::List {} => match container.list() {
+            Ok(containers) => {
+                banner();
+                let mut table = Table::new(" {:<}   {:<}   {:<}   {:<}   {:<}   {:<}");
+                table.add_row(row!("Name", "Mode", "Type", "Port", "Status", "Created"));
 
-            let mut table = Table::new(" {:<}   {:<}   {:<}   {:<}   {:<}   {:<}");
-            table.add_row(row!("Name", "Mode", "Type", "Port", "Status", "Created"));
-
-            let mut lines = containers.stdout.byte_lines();
-
-            while let Some(line) = lines.next() {
-                let char_string = str::from_utf8(line.unwrap()).unwrap();
-                let vec: Vec<&str> = char_string.split(";").collect();
-
-                if check_if_mcli(vec[2]) {
-                    let mc_container = McContainer::new(vec);
+                containers.iter().for_each(|x| {
                     table.add_row(row!(
-                        mc_container.name,
-                        capitalize_first(&mc_container.game_mode),
-                        capitalize_first(&mc_container.level_type),
-                        mc_container.port,
-                        mc_container.status,
-                        mc_container.created
+                        x.get("name"),
+                        x.get("game_mode"),
+                        x.get("level_type"),
+                        x.get("port"),
+                        x.get("status"),
+                        x.get("created"),
                     ));
-                }
+                });
+                print!("\n{}\n", table);
             }
-            print!("\n{}\n", table);
-        }
-    }
-}
-
-fn check_if_mcli(name: &str) -> bool {
-    let re = Regex::new(r"^mcli-.*").unwrap();
-    re.is_match(name)
-}
-
-fn capitalize_first(s: &str) -> String {
-    let mut chars = s.chars();
-    chars
-        .next()
-        .map(|first_letter| first_letter.to_uppercase())
-        .into_iter()
-        .flatten()
-        .chain(chars)
-        .collect()
-}
-
-///////////////////////////////////////////////
-//            McContainer Struct             //
-///////////////////////////////////////////////
-
-#[derive(Debug)]
-struct McContainer {
-    status: String,
-    port: String,
-    name: String,
-    created: String,
-    level_type: String,
-    game_mode: String,
-}
-
-impl McContainer {
-    fn new(container: Vec<&str>) -> Self {
-        McContainer {
-            status: String::from(container[0]),
-            port: McContainer::extract_port(container[1]),
-            name: McContainer::remove_prefix(container[2]),
-            created: String::from(container[3]),
-            level_type: String::from(container[4]),
-            game_mode: String::from(container[5]),
-        }
-    }
-
-    fn remove_prefix(name: &str) -> String {
-        let regex_string: String = format!("^{}([a-zA-Z0-9-_]+)", &PREFIX);
-        let re = Regex::new(&regex_string).unwrap();
-        let cap = re.captures(name).unwrap();
-        cap.get(1).map_or("", |m| m.as_str()).to_string()
-    }
-
-    fn extract_port(port: &str) -> String {
-        let re = Regex::new(r"(?:\d+[\.:]){4}(\d+)->25565/tcp").unwrap();
-        match re.captures(port) {
-            Some(x) => x.get(1).map_or("", |m| m.as_str()).to_string(),
-            _ => "".to_string(),
-        }
+            Err(err) => println!("{} {}", "[-]".red(), err),
+        },
     }
 }
