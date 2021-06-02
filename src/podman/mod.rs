@@ -1,7 +1,5 @@
-mod error;
 mod mc;
 use bytelines::*;
-use error::PodmanError;
 use mc::Container;
 use regex::Regex;
 use std::fmt;
@@ -49,7 +47,7 @@ impl Instance {
         mode: &str,
         level_type: &str,
         heap: &str,
-    ) -> Result<String, PodmanError> {
+    ) -> Result<String, Error> {
         let command = Command::new(&self.runtime)
             .args(&["run", "-d"])
             .args(&["-p", "25565"])
@@ -68,17 +66,17 @@ impl Instance {
 
         match command.status.success() {
             true => Ok(name.to_string().clone()),
-            _ => Err(PodmanError::Command(Error::new(
+            _ => Err(Error::new(
                 ErrorKind::Other,
                 String::from_utf8(command.stderr).unwrap(),
-            ))),
+            )),
         }
     }
 
     ///////////////////////////////////////////////
     //         Remove Minecraft Container        //
     ///////////////////////////////////////////////
-    pub fn remove(&self, name: &str) -> Result<String, PodmanError> {
+    pub fn remove(&self, name: &str) -> Result<String, Error> {
         let stop_container = Command::new(&self.runtime)
             .args(&["stop", &format!("{}{}", self.prefix, name)])
             .stdout(Stdio::null())
@@ -98,10 +96,10 @@ impl Instance {
 
         for command in output.iter() {
             if !command.status.success() {
-                return Err(PodmanError::Command(Error::new(
+                return Err(Error::new(
                     ErrorKind::Other,
                     String::from_utf8(command.stderr.clone()).unwrap(),
-                )));
+                ));
             }
         }
 
@@ -111,7 +109,7 @@ impl Instance {
     ///////////////////////////////////////////////
     //         Start Minecraft Container         //
     ///////////////////////////////////////////////
-    pub fn start(&self, name: &str) -> Result<String, PodmanError> {
+    pub fn start(&self, name: &str) -> Result<String, Error> {
         let command = Command::new(&self.runtime)
             .args(&["start", &format!("{}{}", self.prefix, name)])
             .stdout(Stdio::null())
@@ -119,17 +117,17 @@ impl Instance {
 
         match command.status.success() {
             true => Ok(name.to_string().clone()),
-            _ => Err(PodmanError::Command(Error::new(
+            _ => Err(Error::new(
                 ErrorKind::Other,
                 String::from_utf8(command.stderr).unwrap(),
-            ))),
+            )),
         }
     }
 
     ///////////////////////////////////////////////
     //          Stop Minecraft Container         //
     ///////////////////////////////////////////////
-    pub fn stop(&self, name: &str) -> Result<String, PodmanError> {
+    pub fn stop(&self, name: &str) -> Result<String, Error> {
         let command = Command::new(&self.runtime)
             .args(&["stop", &format!("{}{}", self.prefix, name)])
             .stdout(Stdio::null())
@@ -137,17 +135,17 @@ impl Instance {
 
         match command.status.success() {
             true => Ok(name.to_string().clone()),
-            _ => Err(PodmanError::Command(Error::new(
+            _ => Err(Error::new(
                 ErrorKind::Other,
                 String::from_utf8(command.stderr).unwrap(),
-            ))),
+            )),
         }
     }
 
     ///////////////////////////////////////////////
     //         Restart Minecraft Container       //
     ///////////////////////////////////////////////
-    pub fn restart(&self, name: &str) -> Result<String, PodmanError> {
+    pub fn restart(&self, name: &str) -> Result<String, Error> {
         let command = Command::new(&self.runtime)
             .args(&["restart", &format!("{}{}", self.prefix, name)])
             .stdout(Stdio::null())
@@ -155,18 +153,18 @@ impl Instance {
 
         match command.status.success() {
             true => Ok(name.to_string().clone()),
-            _ => Err(PodmanError::Command(Error::new(
+            _ => Err(Error::new(
                 ErrorKind::Other,
                 String::from_utf8(command.stderr).unwrap(),
-            ))),
+            )),
         }
     }
 
     ///////////////////////////////////////////////
     //             Start RCON Session            //
     ///////////////////////////////////////////////
-    pub fn rcon(&self, name: &str) -> Result<(), PodmanError> {
-        Command::new(&self.runtime)
+    pub fn rcon(&self, name: &str) -> Result<(), Error> {
+        let command = Command::new(&self.runtime)
             .args(&[
                 "exec",
                 "-it",
@@ -175,24 +173,30 @@ impl Instance {
             ])
             .status()?;
 
-        Ok(())
+        match command.success() {
+            true => Ok(()),
+            _ => Err(Error::new(ErrorKind::Other, "")),
+        }
     }
 
     ///////////////////////////////////////////////
     //               Start Log Tail              //
     ///////////////////////////////////////////////
-    pub fn logs(&self, name: &str) -> Result<(), PodmanError> {
-        Command::new(&self.runtime)
+    pub fn logs(&self, name: &str) -> Result<(), Error> {
+        let command = Command::new(&self.runtime)
             .args(&["logs", "-f", &format!("{}{}", self.prefix, name)])
             .status()?;
 
-        Ok(())
+        match command.success() {
+            true => Ok(()),
+            _ => Err(Error::new(ErrorKind::Other, "")),
+        }
     }
 
     ///////////////////////////////////////////////
     //         List Minecraft Containers         //
     ///////////////////////////////////////////////
-    pub fn list(&self) -> Result<Vec<Container>, PodmanError> {
+    pub fn list(&self) -> Result<Vec<Container>, Error> {
         let command = Command::new(&self.runtime)
             .args(&["ps", "-a", "--format", "table {{.Names}};{{.Ports}};{{.Status}};{{.CreatedAt}};{{.Labels.level_type}};{{.Labels.game_mode}}"])
             .output()?;
@@ -219,10 +223,10 @@ impl Instance {
 
         match command.status.success() {
             true => Ok(containers),
-            _ => Err(PodmanError::Command(Error::new(
+            _ => Err(Error::new(
                 ErrorKind::Other,
                 String::from_utf8(command.stderr).unwrap(),
-            ))),
+            )),
         }
     }
 }

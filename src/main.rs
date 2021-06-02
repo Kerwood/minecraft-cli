@@ -30,7 +30,7 @@ fn banner() {
 #[structopt(name = "mcli")]
 enum Mcli {
     #[structopt(name = "create", about = "Create a Minecraft server.")]
-    Game {
+    Create {
         #[structopt(
             short = "h",
             long = "heap",
@@ -110,42 +110,61 @@ fn main() {
     }
 
     match Mcli::from_args() {
-        Mcli::Game {
+        Mcli::Create {
             name,
             mode,
             level_type,
             heap,
         } => match container.create(&name, &mode, &level_type, &heap) {
             Ok(server_name) => println!("{} Created new server :: {}", "[+]".green(), server_name),
-            Err(err) => println!("{} {}", "[-]".red(), err),
+            Err(err) => {
+                eprintln!("{} {}", "[-]".red(), err);
+                process::exit(2);
+            }
         },
 
         Mcli::Remove { name } => match container.remove(&name) {
             Ok(server_name) => println!("{} Removed server :: {}", "[+]".green(), server_name),
-            Err(err) => println!("{} {}", "[-]".red(), err),
+            Err(err) => {
+                eprintln!("{} {}", "[-]".red(), err);
+                process::exit(3);
+            }
         },
 
         Mcli::Start { name } => match container.start(&name) {
             Ok(server_name) => println!("{} Started server :: {}", "[+]".green(), server_name),
-            Err(err) => println!("{} {}", "[-]".red(), err),
+            Err(err) => {
+                eprintln!("{} {}", "[-]".red(), err);
+                process::exit(4);
+            }
         },
 
         Mcli::Stop { name } => match container.stop(&name) {
             Ok(server_name) => println!("{} Stopped server :: {}", "[+]".green(), server_name),
-            Err(err) => println!("{} {}", "[-]".red(), err),
+            Err(err) => {
+                eprintln!("{} {}", "[-]".red(), err);
+                process::exit(5);
+            }
         },
 
         Mcli::Restart { name } => match container.restart(&name) {
             Ok(server_name) => println!("{} Restarted server :: {}", "[+]".green(), server_name),
-            Err(err) => println!("{} {}", "[-]".red(), err),
+            Err(err) => {
+                eprintln!("{} {}", "[-]".red(), err);
+                process::exit(6);
+            }
         },
 
         Mcli::Rcon { name } => {
-            container.rcon(&name).unwrap();
+            if let Err(_) = container.rcon(&name) {
+                process::exit(7)
+            }
         }
 
         Mcli::Logs { name } => {
-            container.logs(&name).unwrap();
+            if let Err(_) = container.logs(&name) {
+                process::exit(8)
+            }
         }
 
         Mcli::List {} => match container.list() {
@@ -154,7 +173,7 @@ fn main() {
                 let mut table = Table::new(" {:<}   {:<}   {:<}   {:<}   {:<}   {:<}");
                 table.add_row(row!("Name", "Mode", "Type", "Port", "Status", "Created"));
 
-                containers.iter().for_each(|x| {
+                for x in containers {
                     table.add_row(row!(
                         x.get("name"),
                         x.get("game_mode"),
@@ -163,10 +182,13 @@ fn main() {
                         x.get("status"),
                         x.get("created"),
                     ));
-                });
+                };
                 print!("\n{}\n", table);
             }
-            Err(err) => println!("{} {}", "[-]".red(), err),
+            Err(err) => {
+                eprintln!("{} {}", "[-]".red(), err);
+                process::exit(9);
+            }
         },
     }
 }
